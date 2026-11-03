@@ -1,0 +1,28 @@
+# Conda environment for the PfCSP ONT pipeline.
+# Create with: mamba env create -f environment.yml
+# Then set CONDA_ENV="pf_ont_pipeline" in config.sh
+# Author: Khadim Gueye
+
+name: pf_ont_pipeline
+
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - python=3.10
+  - minimap2=2.31
+  - samtools=1.23
+  - bcftools=1.23.1
+  - htslib=1.23
+  - freebayes=1.3.10
+  - vcflib=1.0.14
+  - chopper=0.14.1
+  - pysam=0.23.3
+  - pandas=2.3.3
+  - numpy=1.26.4
+  - scipy=1.15.2
+  - biopython=1.88
+  - matplotlib=3.10.9
+  - seaborn=0.13.2

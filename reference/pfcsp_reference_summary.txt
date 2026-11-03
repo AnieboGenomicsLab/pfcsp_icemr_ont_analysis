@@ -1,0 +1,10 @@
+transcript           PF3D7_0304600.1
+gene                 PF3D7_0304600
+location             Pf3D7_03_v3:221323-222516 strand -
+CDS length           1194 bp
+protein length       397 aa
+amplicon             Pf3D7_03_v3:221320-221668 (349 bp)
+callable window      Pf3D7_03_v3:221345-221643 (primer trim 25 bp per edge)
+codons fully callable aa 292 to 390
+TH2R                 aa 311-327 = PSDKHIKEYLNKIQNSL  (Pf3D7_03_v3:221536-221586)
+TH3R                 aa 352-367 = NKPKDELDYANDIEKK  (Pf3D7_03_v3:221416-221463)
