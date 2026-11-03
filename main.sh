@@ -97,6 +97,13 @@ run_step3() {
   info "STEP3 call variants"
   require_file "${REF_DIR}/pfcsp_codon_map.tsv" "codon map (run step 1 first)"
   require_dir "${OUTPUT_DIR}/03_alignment" "alignment dir (run step 2 first)"
+  local opt=()
+  [[ "${KEEP_INDELS:-0}" -eq 1 ]] && opt+=(--keep-indels)
+  if [[ "${USE_CLAIR3:-0}" -eq 1 ]]; then
+    require_cmd run_clair3.sh
+    opt+=(--use-clair3 --clair3-threads "${CLAIR3_THREADS:-2}")
+    [[ -n "${CLAIR3_MODEL:-}" ]] && opt+=(--clair3-model "$CLAIR3_MODEL")
+  fi
   python3 "${PROC_DIR}/03_call_variants.py" \
     --out-dir "$OUTPUT_DIR" \
     --reference "$MAP_REF" \
@@ -114,7 +121,10 @@ run_step3() {
     --min-variant-qual "$MIN_VARIANT_QUAL" \
     --strand-filter "$STRAND_FILTER" \
     --ntc-pattern "$NTC_PATTERN" \
-    --jobs "$PARALLEL_JOBS"
+    --artefact-background "$ARTEFACT_BACKGROUND" \
+    --indel-min-freq "$INDEL_MIN_FREQ" \
+    --indel-homopolymer-min "$INDEL_HOMOPOLYMER_MIN" \
+    --jobs "$PARALLEL_JOBS" "${opt[@]}"
   ok "variants in ${OUTPUT_DIR}/05_variants"
 }
 
@@ -132,6 +142,8 @@ run_step4() {
     --min-phased-reads "$MIN_PHASED_READS" \
     --min-base-qual "$MIN_BASE_QUAL" \
     --denoise-alpha "$DENOISE_ALPHA" \
+    --max-phased-sites "$MAX_PHASED_SITES" \
+    --artefact-sites "${OUTPUT_DIR}/05_variants/sites_filtered.tsv" \
     --jobs "$PARALLEL_JOBS"
   ok "consensus in ${OUTPUT_DIR}/06_consensus, haplotypes in ${OUTPUT_DIR}/07_haplotypes"
 }

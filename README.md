@@ -72,12 +72,14 @@ amplicon coordinates or the epitope boundaries change.
 │   └── <sample>.ontarget.bam             primary reads overlapping the amplicon
 ├── 05_variants/
 │   ├── per_sample/<sample>.freebayes.vcf.gz
-│   ├── sites_filtered.tsv                PASS or ARTEFACT, with amino acid annotation
+│   ├── sites_filtered.tsv                PASS, SINGLETON or ARTEFACT, with annotation
 │   ├── per_sample_calls.tsv              allele frequency and genotype per sample
-│   └── allele_depth_matrix.tsv           A C G T counts per sample and site
+│   ├── allele_depth_matrix.tsv           A C G T counts per sample and site
+│   ├── indel_qc.tsv                      indels in the BAM, with homopolymer context
+│   └── caller_concordance.tsv            freebayes against Clair3, when enabled
 ├── 06_consensus/
 │   ├── consensus_nt.fasta                IUPAC consensus per sample
-│   └── consensus_positions.tsv           base, depth and ambiguity per position
+│   └── consensus_positions.tsv           base, depth, ambiguity, masked allele
 ├── 07_haplotypes/
 │   ├── haplotypes.tsv                    one row per resolved clone
 │   ├── haplotypes_nt.fasta
@@ -112,6 +114,10 @@ The settings most likely to need changing are grouped at the top of `config.sh`.
 | `MIN_SAMPLE_DEPTH` | 100 | Below this a position is not called |
 | `MIN_ALLELE_FREQ` | 0.10 | Minor allele and haplotype floor |
 | `MIN_PHASED_READS` | 50 | Complete reads required across the mixed sites |
+| `MAX_PHASED_SITES` | 20 | Above this, the most balanced positions are phased |
+| `ARTEFACT_BACKGROUND` | 0.03 | Plate background above which an allele is an artefact |
+| `KEEP_INDELS` | 0 | Indels are always reported, 1 also keeps them in the VCF |
+| `USE_CLAIR3` | 0 | 1 adds a Clair3 concordance check, changes no result |
 
 `MAP_TARGET=genome` maps against the whole Pf3D7 genome and restricts to the amplicon
 afterwards. Host and off target reads then land elsewhere instead of being forced onto
@@ -133,6 +139,35 @@ A position where two alleles both pass the frequency floor becomes an IUPAC ambi
 code in the consensus and cannot be scored against 3D7. The haplotype output resolves
 this: reads carrying the mixed sites are grouped, denoised with the UNOISE3 rule,
 screened for PCR chimeras, and each surviving haplotype is scored on its own.
+
+Each site allele gets one of three statuses. `PASS` is dominant in at least one sample
+or a credible minor allele in at least two. `ARTEFACT_recurrent_low_level` is never
+dominant anywhere and still sits above `ARTEFACT_BACKGROUND` across a quarter of the
+plate, which is the signature of systematic error. `SINGLETON_unconfirmed` is seen in a
+single sample: it is kept, because a sample specific allele is the opposite of a
+recurrent error, but the label says the evidence rests on one sample.
+
+Only a recurrent artefact is masked before the consensus step picks its mixed
+positions, so a systematic error cannot be counted as a clone while a rare clone is not
+thrown away. The dominant base of a position is never masked, and
+`consensus_positions.tsv` records every allele that was removed.
+
+Phasing uses at most `MAX_PHASED_SITES` positions. Reads span the whole amplicon, so
+the limit exists only to keep enough reads clean across every site at once. Above the
+limit the most balanced positions are kept rather than the first ones along the genome,
+which would drop one epitope in favour of the other. `moi_per_sample.tsv` reports how
+many mixed sites were found and how many were used.
+
+Indels are read from the CIGAR strings of every BAM and written to `indel_qc.tsv`
+before any filtering. Each one is classified against its homopolymer context, its
+frame and its maximum frequency, and anything not explained by homopolymer error
+raises a warning. Only substitutions reach the consensus and the protein steps, which
+is a safe default for the C terminal window but not for the central repeat region.
+
+`USE_CLAIR3=1` runs Clair3 alongside freebayes and writes `caller_concordance.tsv`.
+Clair3 is a deep learning caller trained on ONT R10.4.1, so agreement between the two
+shows the calls do not depend on the freebayes error model. Only its allele frequency
+is compared, its genotype field assumes a ploidy and is ignored.
 
 Control samples are identified from the file name through `NTC_PATTERN` and
 `POSITIVE_PATTERN`. NTC depth is used to raise the minor allele floor when the no

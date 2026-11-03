@@ -14,6 +14,12 @@ Two views of the same data:
                surviving haplotype is one resolved clone and can be scored on its
                own. MOI is the number of haplotypes that pass.
 
+Alleles the variant step flagged as recurrent ONT error are masked before the mixed
+sites are chosen, so a systematic artefact cannot be counted as a clone. An allele seen
+in a single sample is not masked: a sample specific allele is the opposite of a
+recurrent error, and removing it would discard rare clones. The dominant base of a
+position is never masked.
+
 Outputs under <out_dir>:
   06_consensus/consensus_nt.fasta             IUPAC consensus per sample
   06_consensus/consensus_positions.tsv        per position base, depth, ambiguity
@@ -91,28 +97,43 @@ def process_one(job):
         depth = sum(counts.values())
         if depth < cfg["min_depth"]:
             cons_seq.append("N")
-            cons_rows.append((sample, pos, "N", depth, "", 0, "low_depth"))
+            cons_rows.append((sample, pos, "N", depth, "", 0, "low_depth", ""))
             continue
         present = {b: n for b, n in counts.items()
                    if n >= cfg["min_allele_reads"] and n / depth >= cfg["min_freq"]}
         if not present:
             top = max(counts, key=counts.get)
             present = {top: counts[top]}
+        dropped = ""
+        if cfg["masked"]:
+            major = max(present, key=present.get)
+            out = [b for b in present
+                   if b != major and (pos, b) in cfg["masked"]]
+            if out:
+                dropped = ";".join(f"{b}:{present[b]}" for b in out)
+                present = {b: n for b, n in present.items() if b not in out}
         base = iupac(present)
         cons_seq.append(base)
         cons_rows.append((sample, pos, base, depth,
                           ";".join(f"{b}:{n}" for b, n in sorted(present.items(),
                                                                  key=lambda x: -x[1])),
-                          len(present), "mixed" if len(present) > 1 else "single"))
+                          len(present), "mixed" if len(present) > 1 else "single",
+                          dropped))
         if len(present) == 2:
             ordered = sorted(present, key=lambda b: -present[b])
-            mixed_sites.append((pos, ordered[0], ordered[1]))
+            mixed_sites.append((pos, ordered[0], ordered[1],
+                                present[ordered[1]] / depth))
 
     consensus = "".join(cons_seq)
 
     hap_rows = []
+    n_mixed = len(mixed_sites)
     if mixed_sites:
-        sites = mixed_sites[: cfg["max_sites"]]
+        # Every read spans the whole amplicon, so any mixed site can be phased. Above the
+        # cap, keep the most balanced sites: they separate clones best. Taking them in
+        # genomic order would drop one epitope in favour of the other.
+        sites = sorted(sorted(mixed_sites, key=lambda x: -x[3])[: cfg["max_sites"]],
+                       key=lambda x: x[0])
         strings = []
         for read in bam.fetch(chrom, lo - 1, hi):
             if read.is_secondary or read.is_supplementary:
@@ -120,7 +141,7 @@ def process_one(job):
             r2q = {r: q for q, r in read.get_aligned_pairs(matches_only=True)}
             seq, qual = read.query_sequence, read.query_qualities
             s = ""
-            for pos, major, minor in sites:
+            for pos, major, minor, _ in sites:
                 q = r2q.get(pos - 1)
                 b = seq[q] if (q is not None and qual[q] >= cfg["min_bq_hap"]) else "N"
                 s += "0" if b == major else ("1" if b == minor else "N")
@@ -146,20 +167,19 @@ def process_one(job):
             keep = [(s, n) for s, n in centroids
                     if n >= cfg["min_allele_reads"] and n / total >= cfg["min_freq"]]
             kept_total = sum(n for _, n in keep)
-            site_label = ";".join(f"{p}{a}>{b}" for p, a, b in sites)
+            site_label = ";".join(f"{p}{a}>{b}" for p, a, b, _ in sites)
             for i, (s, n) in enumerate(sorted(keep, key=lambda x: -x[1]), 1):
                 full = list(consensus)
-                for (pos, major, minor), flag in zip(sites, s):
+                for (pos, major, minor, _), flag in zip(sites, s):
                     full[pos - lo] = major if flag == "0" else minor
                 hap_rows.append({
                     "sample": sample, "haplotype_id": f"{sample}_H{i}",
                     "pattern": s, "sites_used": site_label,
                     "reads": n, "freq": round(n / kept_total, 4),
                     "reads_phased": n_complete, "chimeric_reads_removed": n_chimeric,
+                    "mixed_sites_found": n_mixed, "mixed_sites_used": len(sites),
                     "sequence": "".join(full),
                 })
-    if not hap_rows and "N" not in consensus.replace("N", "", 0):
-        pass
     if not hap_rows:
         depth = max((r[3] for r in cons_rows), default=0)
         if depth >= cfg["min_depth"]:
@@ -167,6 +187,7 @@ def process_one(job):
                 "sample": sample, "haplotype_id": f"{sample}_H1",
                 "pattern": "", "sites_used": "", "reads": depth, "freq": 1.0,
                 "reads_phased": depth, "chimeric_reads_removed": 0,
+                "mixed_sites_found": n_mixed, "mixed_sites_used": 0,
                 "sequence": consensus,
             })
     bam.close()
@@ -185,7 +206,9 @@ def main():
     ap.add_argument("--min-phased-reads", type=int, default=50)
     ap.add_argument("--min-base-qual", type=int, default=10)
     ap.add_argument("--denoise-alpha", type=float, default=2.0)
-    ap.add_argument("--max-phased-sites", type=int, default=12)
+    ap.add_argument("--max-phased-sites", type=int, default=20)
+    ap.add_argument("--artefact-sites", type=Path,
+                    help="sites_filtered.tsv, alleles not marked PASS are masked")
     ap.add_argument("--jobs", type=int, default=8)
     args = ap.parse_args()
 
@@ -199,7 +222,15 @@ def main():
     cons_dir.mkdir(parents=True, exist_ok=True)
     hap_dir.mkdir(parents=True, exist_ok=True)
 
+    masked = set()
+    if args.artefact_sites and args.artefact_sites.exists():
+        S = pd.read_csv(args.artefact_sites, sep="\t")
+        masked = {(int(r.pos), str(r.alt)) for r in S.itertuples(index=False)
+                  if str(r.status).startswith("ARTEFACT")}
+        print(f"[INFO] masking {len(masked)} artefact alleles from the variant step")
+
     cfg = {
+        "masked": masked,
         "out_dir": str(args.out_dir), "chrom": args.chrom,
         "start": args.callable_start, "end": args.callable_end,
         "min_depth": args.min_depth, "min_freq": args.min_allele_freq,
@@ -225,8 +256,12 @@ def main():
                 fh.write(consensus[i:i + 60] + "\n")
 
     P = pd.DataFrame(pos_rows, columns=["sample", "pos", "base", "depth",
-                                        "alleles", "n_alleles", "call"])
+                                        "alleles", "n_alleles", "call", "masked_allele"])
     P.to_csv(cons_dir / "consensus_positions.tsv", sep="\t", index=False)
+    hit = P[P.masked_allele != ""]
+    if len(hit):
+        print(f"[INFO] artefact alleles masked in {hit['sample'].nunique()} samples "
+              f"at {hit.pos.nunique()} positions")
 
     H = pd.DataFrame(hap_all)
     if H.empty:
@@ -243,6 +278,8 @@ def main():
     depth = P.groupby("sample").depth.median().rename("median_depth")
     moi = H.groupby("sample").agg(
         MOI=("haplotype_id", "size"),
+        mixed_sites_found=("mixed_sites_found", "max"),
+        mixed_sites_used=("mixed_sites_used", "max"),
         reads_phased=("reads_phased", "max"),
         chimeric_reads_removed=("chimeric_reads_removed", "max"),
     )
@@ -251,6 +288,11 @@ def main():
     M = moi.join([amb, cov, depth]).fillna({"ambiguous_positions": 0, "positions_covered": 0})
     M["clonality"] = ["polyclonal" if m > 1 else "monoclonal" for m in M.MOI]
     M.to_csv(hap_dir / "moi_per_sample.tsv", sep="\t")
+    capped = M[M.mixed_sites_found > M.mixed_sites_used.where(M.mixed_sites_used > 0,
+                                                              M.mixed_sites_found)]
+    if len(capped):
+        print(f"[WARN] {len(capped)} samples carry more than "
+              f"{args.max_phased_sites} mixed sites, the most balanced were phased")
 
     print(f"[INFO] MOI: {M.MOI.value_counts().sort_index().to_dict()}, "
           f"median {M.MOI.median()}")
