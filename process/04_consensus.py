@@ -119,10 +119,15 @@ def process_one(job):
                                                                  key=lambda x: -x[1])),
                           len(present), "mixed" if len(present) > 1 else "single",
                           dropped))
-        if len(present) == 2:
+        # Every mixed position is phased, not only the biallelic ones. Restricting this
+        # to two alleles left a position carrying three above the floor out of the
+        # phasing entirely, and since a haplotype is built from the consensus and only
+        # its phased positions are rewritten, the three way ambiguity code travelled
+        # into every clone of that sample. A resolved clone is meant to carry a base at
+        # every position: on this run that was 101 positions over 66 samples.
+        if len(present) >= 2:
             ordered = sorted(present, key=lambda b: -present[b])
-            mixed_sites.append((pos, ordered[0], ordered[1],
-                                present[ordered[1]] / depth))
+            mixed_sites.append((pos, ordered, present[ordered[1]] / depth))
 
     consensus = "".join(cons_seq)
 
@@ -132,7 +137,7 @@ def process_one(job):
         # Every read spans the whole amplicon, so any mixed site can be phased. Above the
         # cap, keep the most balanced sites: they separate clones best. Taking them in
         # genomic order would drop one epitope in favour of the other.
-        sites = sorted(sorted(mixed_sites, key=lambda x: -x[3])[: cfg["max_sites"]],
+        sites = sorted(sorted(mixed_sites, key=lambda x: -x[2])[: cfg["max_sites"]],
                        key=lambda x: x[0])
         strings = []
         for read in bam.fetch(chrom, lo - 1, hi):
@@ -141,10 +146,13 @@ def process_one(job):
             r2q = {r: q for q, r in read.get_aligned_pairs(matches_only=True)}
             seq, qual = read.query_sequence, read.query_qualities
             s = ""
-            for pos, major, minor, _ in sites:
+            for pos, alleles, _ in sites:
                 q = r2q.get(pos - 1)
-                b = seq[q] if (q is not None and qual[q] >= cfg["min_bq_hap"]) else "N"
-                s += "0" if b == major else ("1" if b == minor else "N")
+                b = seq[q] if (q is not None and qual[q] >= cfg["min_bq_hap"]) else ""
+                # The allele index, so a site with three alleles is phased like any
+                # other. A read that carries none of them, or is too poor to call, is
+                # unknown at that site rather than forced onto the major allele.
+                s += str(alleles.index(b)) if b in alleles else "N"
             strings.append(s)
         complete = Counter(s for s in strings if "N" not in s)
         n_complete = sum(complete.values())
@@ -167,11 +175,11 @@ def process_one(job):
             keep = [(s, n) for s, n in centroids
                     if n >= cfg["min_allele_reads"] and n / total >= cfg["min_freq"]]
             kept_total = sum(n for _, n in keep)
-            site_label = ";".join(f"{p}{a}>{b}" for p, a, b, _ in sites)
+            site_label = ";".join(f"{p}{a[0]}>{'/'.join(a[1:])}" for p, a, _ in sites)
             for i, (s, n) in enumerate(sorted(keep, key=lambda x: -x[1]), 1):
                 full = list(consensus)
-                for (pos, major, minor, _), flag in zip(sites, s):
-                    full[pos - lo] = major if flag == "0" else minor
+                for (pos, alleles, _), flag in zip(sites, s):
+                    full[pos - lo] = alleles[int(flag)]
                 hap_rows.append({
                     "sample": sample, "haplotype_id": f"{sample}_H{i}",
                     "pattern": s, "sites_used": site_label,

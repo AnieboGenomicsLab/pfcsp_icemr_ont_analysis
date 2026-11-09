@@ -1,0 +1,61 @@
+# The repository holds the pipeline, not the data it produces. Everything under
+# OUTPUT_DIR is rebuilt by main.sh from the raw reads and the configuration, so none of
+# it belongs in version control: the alignments and VCFs are large, the figures are
+# regenerated on every run, and a committed result stops matching the code that made it.
+#
+# Author: Khadim Gueye
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# Pipeline output, in case OUTPUT_DIR is ever set inside the repository
+01_read_qc/
+02_filtered_reads/
+03_alignment/
+05_variants/
+06_consensus/
+07_haplotypes/
+08_protein/
+09_phylogeny/
+10_figures/
+logs/
+
+# Sequencing data and alignments
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.bam
+*.bam.bai
+*.cram
+*.sam
+
+# Variant calls and their indexes
+*.vcf
+*.vcf.gz
+*.vcf.gz.tbi
+*.vcf.gz.csi
+*.bcf
+
+# Reference indexes, rebuilt by step 1
+*.fai
+*.mmi
+*.dict
+
+# IQ-TREE working files. The tree, the rooted copy and the report are results, but
+# these are the checkpoints and the bootstrap state it writes beside them.
+*.ckp.gz
+*.model.gz
+*.splits.nex
+*.uniqueseq.phy
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
