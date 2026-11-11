@@ -20,6 +20,15 @@ in a single sample is not masked: a sample specific allele is the opposite of a
 recurrent error, and removing it would discard rare clones. The dominant base of a
 position is never masked.
 
+Phasing is n-ary. A position carrying three alleles above the floor is phased like any
+other, and the read is encoded by the allele index rather than by a binary flag. Phasing
+only the biallelic positions left the three allele ones out of the phasing entirely, and
+since a haplotype is built from the consensus with only its phased positions rewritten,
+the ambiguity code travelled into every clone of that sample: 101 positions over 66
+samples on this run. Every read spans the whole amplicon, so any mixed site can be
+phased; above the cap the most balanced sites are kept, because they separate clones
+best, where taking them in genomic order would drop one epitope in favour of the other.
+
 Outputs under <out_dir>:
   06_consensus/consensus_nt.fasta             IUPAC consensus per sample
   06_consensus/consensus_positions.tsv        per position base, depth, ambiguity
@@ -119,12 +128,6 @@ def process_one(job):
                                                                  key=lambda x: -x[1])),
                           len(present), "mixed" if len(present) > 1 else "single",
                           dropped))
-        # Every mixed position is phased, not only the biallelic ones. Restricting this
-        # to two alleles left a position carrying three above the floor out of the
-        # phasing entirely, and since a haplotype is built from the consensus and only
-        # its phased positions are rewritten, the three way ambiguity code travelled
-        # into every clone of that sample. A resolved clone is meant to carry a base at
-        # every position: on this run that was 101 positions over 66 samples.
         if len(present) >= 2:
             ordered = sorted(present, key=lambda b: -present[b])
             mixed_sites.append((pos, ordered, present[ordered[1]] / depth))
@@ -134,9 +137,6 @@ def process_one(job):
     hap_rows = []
     n_mixed = len(mixed_sites)
     if mixed_sites:
-        # Every read spans the whole amplicon, so any mixed site can be phased. Above the
-        # cap, keep the most balanced sites: they separate clones best. Taking them in
-        # genomic order would drop one epitope in favour of the other.
         sites = sorted(sorted(mixed_sites, key=lambda x: -x[2])[: cfg["max_sites"]],
                        key=lambda x: x[0])
         strings = []
@@ -149,9 +149,7 @@ def process_one(job):
             for pos, alleles, _ in sites:
                 q = r2q.get(pos - 1)
                 b = seq[q] if (q is not None and qual[q] >= cfg["min_bq_hap"]) else ""
-                # The allele index, so a site with three alleles is phased like any
-                # other. A read that carries none of them, or is too poor to call, is
-                # unknown at that site rather than forced onto the major allele.
+                # The allele index, so three alleles phase like two.
                 s += str(alleles.index(b)) if b in alleles else "N"
             strings.append(s)
         complete = Counter(s for s in strings if "N" not in s)

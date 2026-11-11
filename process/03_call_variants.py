@@ -454,7 +454,10 @@ def main():
     S = pd.DataFrame(site_rows).sort_values("pos")
     S.to_csv(var_dir / "sites_filtered.tsv", sep="\t", index=False)
 
-    ntc_depth = A[is_ntc].groupby(["chrom", "pos"]).depth.max() if is_ntc.any() else None
+    # Contamination floor. What matters is how many reads of the alt allele the worst
+    # NTC well carries, not how deep that well is.
+    ntc_alt = (A[is_ntc].groupby(["chrom", "pos"])[["A", "C", "G", "T"]].max()
+               if is_ntc.any() else None)
     passing = S[S.status != "ARTEFACT_recurrent_low_level"]
     idx = A.set_index(["sample", "chrom", "pos"])
     calls = []
@@ -468,8 +471,8 @@ def main():
             if depth < args.min_depth:
                 continue
             floor = r.site_floor
-            if ntc_depth is not None and (r.chrom, r.pos) in ntc_depth.index:
-                floor = max(floor, 2 * float(ntc_depth[(r.chrom, r.pos)]) / depth)
+            if ntc_alt is not None and (r.chrom, r.pos) in ntc_alt.index:
+                floor = max(floor, 2 * float(ntc_alt.at[(r.chrom, r.pos), r.alt]) / depth)
             alt_n, ref_n = int(x[r.alt]), int(x[r.ref])
             alt_f, ref_f = alt_n / depth, ref_n / depth
             if alt_n < args.min_allele_reads or alt_f < floor:
@@ -490,6 +493,9 @@ def main():
         clair3_concordance(var_dir, samples, C)
 
     print(f"[INFO] site alleles: {S.status.value_counts().to_dict()}")
+    kept_sites = S[S.status != "ARTEFACT_recurrent_low_level"]
+    print(f"[INFO] effect of the kept alleles: "
+          f"{kept_sites.effect.value_counts().to_dict()}")
     print(f"[INFO] sample level calls: {len(C)}, of which mixed: "
           f"{int((C.genotype == 'MIXED').sum()) if len(C) else 0}")
     print(f"[INFO] output: {var_dir}")

@@ -26,6 +26,23 @@ A position carrying a Pf8 SNP record that did not pass Pf8 filters is blanked in
 sequence. Left alone it would be written as reference on the Pf8 side only, and our
 samples would separate from Pf8 at a site where Pf8 was never callable.
 
+Colours are searched, not shaded. Shading each country inside a region hue put the
+twelve West African countries within a Delta E of 2.6 of one another in OKLab, where 15
+is the floor at which full colour vision still separates two fills. The palettes below
+were built instead from candidates on several lightness bands at high chroma, then
+farthest point sampling, then a 2-opt pass maximising the weakest neighbouring pair.
+Only neighbours matter, because a pie writes its slices in one fixed order, and our own
+samples and the reference were held at their alphabetical place during the search:
+dropping the pink in afterwards had put it beside Nigeria at a Delta E of 3.4, the one
+pair the figure exists to separate. Worst adjacent pair: 15.3 for the countries, 19.0
+for the regions, 9.2 under deuteranopia for the eight groups. Colours are assigned
+alphabetically, so a change to the set of countries invalidates the order and the
+search has to be run again.
+
+Pf8 candidates are oversampled before the cap is applied. Picking by Fws alone brought
+in Nigerian samples 23 percent missing across the window, which is a row of N rather
+than a sequence, so candidates are built first and ranked on how complete they came out.
+
 Outputs under <out_dir>/09_phylogeny, with one directory per dataset:
 
   alignment_sequences.fasta        one record per clone and per Pf8 sample
@@ -40,6 +57,8 @@ Outputs under <out_dir>/09_phylogeny, with one directory per dataset:
   <dataset>.popart_by_group.nex    PopART network input, sliced by country
   <dataset>.popart_by_region.nex   the same, sliced by region
   itol_colorstrip_origin.txt       ring 1, ours, shared with Pf8, or Pf8 only
+  itol_symbol_our_clones.txt       a circle sized by our clone count, after ring 1
+  itol_bar_our_clones.txt          the same count as a bar, with the number printed
   itol_piechart_by_region.txt      ring 2
   itol_piechart_by_country.txt     ring 3
   itol_ringlabel_origin.txt        names ring 1 on the tree
@@ -85,28 +104,7 @@ OUR_COLOR = "#E7298A"
 REFERENCE_COLOR = "#000000"
 UNKNOWN_COLOR = "#BDBDBD"
 
-# Country and region palettes.
-#
-# Shading each country inside a region hue put the twelve West African countries within
-# a Delta E of 2.6 of one another in OKLab, where 15 is the floor at which a reader with
-# full colour vision still separates two fills, so Ghana, Guinea and Benin arrived as
-# one brown. These two lists were searched instead: candidates on several lightness
-# bands at high chroma, then farthest point sampling for the set, then a 2-opt pass
-# maximising the weakest neighbouring pair.
-#
-# Only neighbours touch, because a pie writes its slices in one fixed order, so the
-# chain is what the search maximises and the order is part of the result. Our own
-# samples and the reference are fixed colours sitting at their own alphabetical place,
-# and the search held them in position: dropping the pink in afterwards had put it
-# beside Nigeria at a Delta E of 3.4, which is the one pair the figure exists to
-# separate.
-#
-#   country   worst adjacent pair Delta E 15.3 over all 33 slices, 17.3 normal vision
-#   region    worst adjacent pair Delta E 19.0
-#
-# Colours are assigned to labels alphabetically, which is the order the pies and the
-# legends use, so a change to the set of countries invalidates the ordering and the
-# search has to be run again.
+# Country and region palettes, searched. See the header.
 COUNTRY_PALETTE = [
     "#CE5A95", "#96B95A", "#C85CA4", "#CA6E00", "#903798", "#D95B52", "#9F2F7E",
     "#2EBBE8", "#007F67", "#00C1D4", "#A52B6F", "#ED86A7", "#AA295F", "#009EC6",
@@ -114,17 +112,15 @@ COUNTRY_PALETTE = [
     "#AF283D", "#767BE7", "#DD9C42", "#9AA1FB", "#D65875", "#245DC2", "#AD274F",
     "#7C41AE", "#A34300", "#D35985",
 ]
+# The basic HTML colour set, in the order the region labels sort. Maroon and olive sit
+# at the end as spares, so the first ten labels keep the colours the figure already uses.
 REGION_PALETTE = [
-    "#D65875", "#9AA1FB", "#A34300", "#767BE7", "#DD9C42",
-    "#AA295F", "#ED86A7", "#245DC2", "#CA6E00", "#C05FB2",
+    "#FF0000", "#FFFF00", "#00FF00", "#008000", "#00FFFF",
+    "#008080", "#0000FF", "#000080", "#FF00FF", "#800080",
+    "#800000", "#808000",
 ]
 
-# A coarser grouping, written to the metadata and to colour_key.tsv rather than drawn
-# as a ring. Thirty one countries are too many for a legend that has to be read at a
-# glance, and at this level the panel still answers the question the figure asks: where
-# our sequences sit relative to Nigeria, to Cameroon and to the wider population. Its
-# eight colours were validated on the same adjacency rule, worst adjacent pair Delta E
-# 9.2 under deuteranopia and 22.9 under normal vision.
+# A coarser grouping, for the metadata and colour_key.tsv rather than for a ring.
 GROUP_SLOTS = [
     ("Our data", "#E7298A"),
     ("Nigeria", "#008300"),
@@ -280,11 +276,7 @@ def load_pf8_fws(path):
     return out
 
 
-# How many candidates are genotyped per country before the cap is applied. Picking by
-# Fws alone brought in Nigerian samples that were 23 percent missing across the window,
-# which is a row of N in the alignment rather than a sequence. Candidates are built
-# first, then ranked on how complete they came out, so the cap is filled with sequences
-# that exist rather than with the first names off the Fws list.
+# Candidates genotyped per country before the cap is applied. See the header.
 PF8_OVERSAMPLE = 5
 
 
@@ -544,6 +536,55 @@ def write_itol_colorstrip(path, tips):
         for t in tips:
             kind = origin_of(t)
             out.write(f"{t['tip']}\t{kinds[kind]}\t{kind}\n")
+
+
+def our_clones_of(tip):
+    return sum(1 for m in tip["members"] if m["source"] == "our_data")
+
+
+def write_itol_our_clones_symbol(path, tips):
+    """A circle on each tip we carry, its area set by how many of our clones sit there.
+
+    The origin ring says whether a haplotype is ours. This says how common it is among
+    our own samples, which the ring cannot show. Pf8 only tips get no circle.
+    """
+    counts = {t["tip"]: our_clones_of(t) for t in tips}
+    top = max(counts.values()) or 1
+    kinds = {k: v for k, v in ORIGIN_COLORS.items() if k != "Pf8 only"}
+    with open(path, "w") as out:
+        out.write("DATASET_SYMBOL\nSEPARATOR TAB\n")
+        out.write("DATASET_LABEL\tClones in our samples\n")
+        out.write(f"COLOR\t{OUR_COLOR}\n")
+        out.write("MAXIMUM_SIZE\t34\nBORDER_WIDTH\t0.5\n")
+        out.write("BORDER_COLOR\t#FFFFFF\n")
+        out.write("LEGEND_TITLE\tClones in our samples, area by count\n")
+        out.write("LEGEND_SHAPES\t" + "\t".join("2" for _ in kinds) + "\n")
+        out.write("LEGEND_COLORS\t" + "\t".join(kinds.values()) + "\n")
+        out.write("LEGEND_LABELS\t" + "\t".join(kinds) + "\n")
+        out.write("DATA\n")
+        for t in tips:
+            c = counts[t["tip"]]
+            if c == 0:
+                continue
+            # Area proportional to the count, with a floor so a single clone stays visible.
+            size = max(9, round(34 * (c / top) ** 0.5))
+            out.write(f"{t['tip']}\t2\t{size}\t{ORIGIN_COLORS[origin_of(t)]}"
+                      f"\t1\t1\t{c}\n")
+
+
+def write_itol_our_clones_bar(path, tips):
+    """The same count as a bar ring, with the number printed beside each bar."""
+    with open(path, "w") as out:
+        out.write("DATASET_SIMPLEBAR\nSEPARATOR TAB\n")
+        out.write("DATASET_LABEL\tClones in our samples\n")
+        out.write(f"COLOR\t{OUR_COLOR}\n")
+        out.write("WIDTH\t120\nMARGIN\t10\nSHOW_VALUE\t1\n")
+        out.write("BORDER_WIDTH\t0\nHEIGHT_FACTOR\t0.9\n")
+        out.write("DATA\n")
+        for t in tips:
+            c = our_clones_of(t)
+            if c:
+                out.write(f"{t['tip']}\t{c}\n")
 
 
 def write_colour_key(path, group_colours, region_colours):
@@ -877,7 +918,11 @@ def main():
         write_itol_piechart(d / "itol_piechart_by_region.txt", tips, "region",
                             region_colours, "Region")
         write_itol_colorstrip(d / "itol_colorstrip_origin.txt", tips)
+        write_itol_our_clones_symbol(d / "itol_symbol_our_clones.txt", tips)
+        write_itol_our_clones_bar(d / "itol_bar_our_clones.txt", tips)
         write_itol_ring_label(d / "itol_ringlabel_origin.txt", tips, "Origin")
+        write_itol_ring_label(d / "itol_ringlabel_our_clones.txt", tips,
+                              "Clones in our samples")
         write_itol_ring_label(d / "itol_ringlabel_region.txt", tips, "Region")
         write_itol_ring_label(d / "itol_ringlabel_country.txt", tips, "Country")
         write_itol_label_colors(d / "itol_labelcolors_origin.txt", tips)

@@ -1,18 +1,15 @@
 # PfCSP ICEMR ONT analysis
 
 Analysis pipeline for the targeted *Plasmodium falciparum* circumsporozoite protein
-(CSP) amplicon sequenced on Oxford Nanopore.
+(CSP) amplicon sequenced on Oxford Nanopore. From raw reads it maps and filters, calls
+variants without assuming a ploidy, builds a per sample consensus, resolves the
+co-circulating clones, translates them to protein and scores the Th2R and Th3R epitopes
+against 3D7, places the sequences against MalariaGEN Pf8, and draws the figure.
 
-From raw reads it maps and filters, calls variants without assuming a ploidy, builds a
-per sample consensus, resolves the co-circulating clones, translates them to protein to
-score the Th2R and Th3R epitopes against 3D7, places the sequences against MalariaGEN
-Pf8, and draws the publication figure.
+This README is a reproduction guide. It states what to install, what to provide, how to
+run the pipeline and what comes out.
 
-The amplicon covers 349 bp of the CSP C terminus, `Pf3D7_03_v3:221320-221668`, which is
-amino acids 292 to 390 of `PF3D7_0304600.1` once the primer regions are trimmed. Both
-T cell epitopes fall inside it. The central NANP repeat does not.
-
-## Install
+## 1. Install
 
 Tools and versions are pinned in `environment.yml`:
 
@@ -21,17 +18,12 @@ mamba env create -f environment.yml
 ```
 
 This creates the environment `pf_ont_pipeline`, which is what `CONDA_ENV` expects in
-`config.sh`. `main.sh` activates it on its own.
+`config.sh`. `main.sh` activates it on its own, so the environment does not have to be
+active in the shell.
 
-## Quick start
+## 2. Provide the inputs
 
-Edit the paths at the top of `config.sh`, then:
-
-```bash
-bash main.sh
-```
-
-Three inputs are required:
+Three are required, set at the top of `config.sh`:
 
 | Setting | What it is |
 |---|---|
@@ -39,37 +31,101 @@ Three inputs are required:
 | `GENOME_FASTA` | Pf3D7 genome, indexed with `samtools faidx` |
 | `GENOME_GFF` | PlasmoDB annotation, used to locate the CSP CDS |
 
-The Pf8 comparison in step 6 also needs the MalariaGEN Pf8 release: the CSP region VCF,
-`Pf8_samples.txt` and `Pf8_fws.tsv`, set through `PF8_DIR`. Without them step 6 falls
-back to your samples and 3D7 alone.
+Step 6 also needs the MalariaGEN Pf8 release, set through `PF8_DIR`: the CSP region VCF,
+`Pf8_samples.txt` and `Pf8_fws.tsv`. Without them step 6 falls back to your own samples
+and 3D7 alone and the rest of the pipeline is unaffected.
 
-## Steps
-
-Each step is written as `${STEPn:-default}`, so one can be rerun from the command line
-without editing the file:
+`METADATA` is optional. It gives the country and the state of each sample, which the
+figure turns into its state columns. Build it once with `00_metadata.py`, which looks
+each identifier up in the collection tables of the other studies:
 
 ```bash
-STEP1=0 STEP2=0 STEP3=0 STEP4=0 STEP5=0 STEP6=1 STEP7=0 bash main.sh
+python3 process/00_metadata.py \
+  --input-dir "$INPUT_DIR" \
+  --source    /path/to/metadata_pfSmarrt.tsv \
+  --source    /path/to/metadata_with_sample.tsv \
+  --out       "$INPUT_DIR/metadata.tsv"
+```
+
+Any table holding an identifier column and a state column works as a source, and the
+first source that holds an identifier wins. The script prints the samples whose state it
+had to infer and those it could not resolve. Leave `METADATA` empty to run without it:
+the figure then drops its state columns and nothing else changes.
+
+`OUTPUT_DIR` is created if it does not exist. Nothing is written anywhere else.
+
+## 3. Check the configuration
+
+```bash
+DRY_RUN=1 bash main.sh
+```
+
+This prints the resolved paths, the amplicon window and the steps that would run, then
+exits without touching the data. Run it once after editing `config.sh`.
+
+## 4. Run
+
+```bash
+bash main.sh
+```
+
+Steps 1 and 2 are set to 0 in the shipped `config.sh`, because the reference and the
+alignments are built once. On a first run set them to 1.
+
+Step 6 runs IQ-TREE twice and takes about 25 minutes on 16 threads. Run the pipeline
+under `tmux` or `screen` if the session may be interrupted.
+
+## 5. Rerun one step
+
+Every step is written as `${STEPn:-default}`, so any of them can be driven from the
+command line without editing the file:
+
+```bash
+STEP1=0 STEP2=0 STEP3=0 STEP4=0 STEP5=0 STEP6=1 bash main.sh
 ```
 
 | Step | Script | Produces |
 |---|---|---|
+| 0 | `00_metadata.py` | `metadata.tsv`, the state of each sample, run once by hand |
 | 1 | `01_extract_reference.py` | `reference/` CSP gene, CDS, protein, amplicon, codon map |
 | 2 | `02_map_reads.py` | `02_filtered_reads/`, `03_alignment/`, mapping summary |
 | 3 | `03_call_variants.py` | `05_variants/` candidate sites, filtered sites, per sample calls |
 | 4 | `04_consensus.py` | `06_consensus/`, `07_haplotypes/` consensus, clones, MOI |
 | 5 | `05_translate.py` | `08_protein/` protein, substitutions, epitope status |
 | 6 | `06_phylogeny.py` | `09_phylogeny/` alignments, trees and annotations against Pf8 |
-| 7 | `07_figures.py` | `10_figures/` the protein figure against 3D7 |
 
-Steps 2 to 5 depend on the step before them, step 6 needs step 4 and step 7 needs
-step 5. Step 1 only has to be rerun when the amplicon coordinates or the epitope
-boundaries change. `DRY_RUN=1` prints the resolved configuration and exits.
+Steps 2 to 5 depend on the step before them and step 6 needs step 4. Step 1 only has to
+be rerun when the amplicon coordinates or the epitope boundaries change.
 
-Step 6 runs IQ-TREE twice and takes about 25 minutes. Run it under `tmux` or `screen`
-if the session may be interrupted.
+## 6. Draw the figures
 
-## Output
+Figures are not a pipeline step. Once the pipeline has finished, open the notebook and
+run it top to bottom:
+
+```bash
+conda activate pf_ont_pipeline
+jupyter lab notebook/csp_figures.ipynb
+```
+
+Its first cell holds the three paths, the cohort and the printed size. Nothing else needs
+editing. Every figure is shown inline and written to `10_figures/`.
+
+| Cell | Figure | Needs |
+|---|---|---|
+| Figure 1 | samples per country | metadata |
+| Figure 2 | MOI per state | step 4 |
+| Figure 3 | nucleotide and haplotype diversity | step 4 |
+| Figure 4 | where the variation sits | steps 3 and 5 |
+| Figure 7 | vaccine match status | step 5 |
+| Figure 8 | FST and PCoA, with 3D7 on the ordination | step 4 |
+| Figure 9 | protein haplotypes against 3D7 | step 5 |
+| Figure 10 | the files to load in iTOL | step 6 |
+
+`csp_lib.py` holds the analysis and the plotting, `csp_figure9.py` draws the protein
+matrix. Both sit next to the notebook and are imported by it. The phylogeny itself is
+drawn in iTOL, so the last cell prints the files to load and the order to load them in.
+
+## 7. Output
 
 ```
 <OUTPUT_DIR>/
@@ -93,9 +149,11 @@ if the session may be interrupted.
 │   ├── <dataset>.popart_by_group.nex  network input for PopART
 │   ├── metadata_sequences.tsv         country, region, year, source per sequence
 │   └── itol_*.txt                     annotations to drop on the tree in iTOL
-└── 10_figures/
-    ├── csp_protein_vs_3d7.pdf         the figure, vector and raster
-    └── protein_haplotypes.tsv         every protein haplotype and its changes
+└── 10_figures/                    written by the notebook, not by main.sh
+    ├── csp_protein_vs_3d7.pdf         the protein figure, vector and raster
+    ├── protein_haplotypes.tsv         every haplotype, its clones, its distance to
+    │                                  3D7 and its Th2R and Th3R status
+    └── protein_variable_positions.tsv per position, the residues seen and their counts
 ```
 
 Three files give a first overview: `01_read_qc/mapping_summary.tsv`, then
@@ -107,13 +165,21 @@ this order, each ring label immediately before the ring it names:
 ```
 itol_labelcolors_origin.txt   leaf label colour, adds no ring
 itol_ringlabel_origin.txt     itol_colorstrip_origin.txt    ring 1
-itol_ringlabel_region.txt     itol_piechart_by_region.txt   ring 2
-itol_ringlabel_country.txt    itol_piechart_by_country.txt  ring 3
+itol_ringlabel_our_clones.txt itol_symbol_our_clones.txt    ring 2, circles
+itol_ringlabel_region.txt     itol_piechart_by_region.txt   ring 3
+itol_ringlabel_country.txt    itol_piechart_by_country.txt  ring 4
 ```
 
-## Configuration
+`itol_bar_our_clones.txt` carries the same clone counts as a bar ring that prints the
+number beside each bar. Load it instead of the circles when the exact count matters more
+than the shape.
 
-Everything lives in `config.sh`, grouped by stage. The settings most often changed:
+The figure is drawn at the size it is printed at. Insert the PNG at full size in a word
+processor; scaling it down shrinks every label by the same factor.
+
+## 8. Settings most often changed
+
+All of them live in `config.sh`, grouped by stage.
 
 | Parameter | Default | Note |
 |---|---|---|
@@ -125,69 +191,19 @@ Everything lives in `config.sh`, grouped by stage. The settings most often chang
 | `MAX_PHASED_SITES` | 20 | Above this the most balanced positions are phased |
 | `MAP_TARGET` | genome | `genome` keeps off target reads off a 349 bp reference |
 | `THREADS`, `PARALLEL_JOBS` | 8, 16 | Per job, and jobs at once |
-
-Phylogeny and figure:
-
-| Parameter | Default | Note |
-|---|---|---|
 | `PHYLO_DATASETS` | nigeria,all | Built in the same run |
 | `OUR_CAMEROON_PREFIX` | CMR | Identifier prefix that marks a Cameroonian sample |
 | `PF8_FOCUS_COUNTRIES` | Nigeria,Cameroon | Kept deeper than the rest, 80 each |
 | `PF8_MAX_CONTEXT` | 20 | Cap for every other country |
 | `PF8_MIN_FWS` | 0.95 | Below this a Pf8 sample is a mix of clones |
 | `PHYLO_BOOTSTRAP`, `PHYLO_ALRT` | 1000, 1000 | 0 disables either |
-| `FIG_MIN_CLONES` | 3 | A haplotype is drawn when this many clones carry it |
-| `FIG_DPI` | 600 | Raster resolution of the PNG |
+| `METADATA` | `$INPUT_DIR/metadata.tsv` | Country and state per sample |
 
 `OUR_CAMEROON_PREFIX` is how the two countries are told apart, from the sample
 identifier. Change it before running on another cohort.
 
-## Method notes
-
-The choices that change how a result is read.
-
-**Ploidy is never assumed.** A sample can carry several clones, so a fixed ploidy model
-would collapse the allele frequencies the clone analysis depends on. Alleles are
-recounted from the BAM at every candidate site in every sample.
-
-**Clones, not consensus.** A polyclonal infection has an IUPAC consensus that no
-parasite carries, so the reads are phased instead and the unit of analysis downstream
-is one clone. Phasing is n-ary: a position with three alleles above the floor is phased
-like any other, and a resolved clone carries a base at every position it was sequenced
-at.
-
-**Each site allele gets one of three statuses.** `PASS` is dominant in at least one
-sample or a credible minor allele in at least two. `ARTEFACT_recurrent_low_level` is
-never dominant and still sits above `ARTEFACT_BACKGROUND` across a quarter of the
-plate, which is the signature of systematic error. `SINGLETON_unconfirmed` is seen in
-one sample only; it is kept, because a sample specific allele is the opposite of a
-recurrent error, but the label says the evidence rests on one sample.
-
-**Indels are reported, not called.** They go to `indel_qc.tsv` with their homopolymer
-context and are excluded from the consensus and the protein, which model substitutions
-only. In this window the recurrent indel is a 1 bp deletion in a 9 bp poly-T, which is
-ONT homopolymer error.
-
-**No aligner runs in step 6.** Every step writes the window in 3D7 coordinates and Pf8
-is called against the same reference, so the sequences are already homologous position
-by position. Realigning 299 bp of a hypervariable gene would invent gaps the data does
-not support.
-
-**The trees are rooted on 3D7 as a reading convention.** 3D7 is a member of the same
-species, not an outgroup, and there is no outgroup for *P. falciparum* in this window.
-
-**The window carries little phylogenetic signal.** 22 of its 99 residues vary, and on
-the reference cohort that supported 9 percent of internal nodes at `UFBoot >= 95` and
-`SH-aLRT >= 80`. Read `<dataset>.support_summary.tsv` before reading the tree, and
-prefer the PopART network, which shows the same sequences without committing to an
-order of descent the alignment cannot support.
-
-**The figure is drawn at the size it is printed at**, 6.6 by 9.5 inches, the text area
-of a portrait page. Insert the PNG at full size in a word processor; scaling it down
-shrinks every label by the same factor.
-
-**Scope.** Conclusions from this pipeline concern the CSP C terminal T cell epitopes.
-The central NANP repeat, the main B cell target of RTS,S, is outside the amplicon.
+Each script carries its own header explaining what it does and why it does it that way.
+Read that header before changing a parameter it depends on.
 
 ## Contact
 

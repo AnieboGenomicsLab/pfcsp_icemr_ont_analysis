@@ -204,33 +204,13 @@ run_step6() {
   ok "phylogeny in ${OUTPUT_DIR}/09_phylogeny"
 }
 
-run_step7() {
-  info "STEP7 publication figure, protein against 3D7"
-  require_file "${OUTPUT_DIR}/08_protein/haplotypes_protein.faa" "translated clones (run step 5 first)"
-  require_file "${REF_DIR}/pfcsp_codon_map.tsv" "codon map (run step 1 first)"
-  python3 "${PROC_DIR}/07_figures.py" \
-    --out-dir "$OUTPUT_DIR" \
-    --codon-map "${REF_DIR}/pfcsp_codon_map.tsv" \
-    --callable-start "$CALLABLE_START" \
-    --callable-end "$CALLABLE_END" \
-    --th2r "$TH2R_START" "$TH2R_END" \
-    --th3r "$TH3R_START" "$TH3R_END" \
-    --ntc-pattern "$NTC_PATTERN" \
-    --positive-pattern "$POSITIVE_PATTERN" \
-    --min-clones "$FIG_MIN_CLONES" \
-    --max-rows "$FIG_MAX_ROWS" \
-    --title "$FIG_TITLE" \
-    --dpi "$FIG_DPI"
-  ok "figure in ${OUTPUT_DIR}/10_figures"
-}
-
 main() {
   info "config       ${CONFIG}"
   info "input        ${INPUT_DIR}"
   info "output       ${OUTPUT_DIR}"
   info "amplicon     ${AMPLICON_CHROM}:${AMPLICON_START}-${AMPLICON_END}"
   info "callable     ${AMPLICON_CHROM}:${CALLABLE_START}-${CALLABLE_END}"
-  info "steps        1:${STEP1} 2:${STEP2} 3:${STEP3} 4:${STEP4} 5:${STEP5} 6:${STEP6} 7:${STEP7}"
+  info "steps        1:${STEP1} 2:${STEP2} 3:${STEP3} 4:${STEP4} 5:${STEP5} 6:${STEP6}"
 
   if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
     ok "dry run, nothing executed"
@@ -246,7 +226,6 @@ main() {
   require_cmd chopper
   [[ "$STEP3" -eq 1 ]] && require_cmd freebayes
   check_python_modules pysam pandas numpy
-  [[ "$STEP7" -eq 1 ]] && check_python_modules matplotlib
 
   [[ "$STEP1" -eq 1 ]] && run_step1 || info "STEP1 skipped"
   [[ "$STEP2" -eq 1 ]] && run_step2 || info "STEP2 skipped"
@@ -254,10 +233,10 @@ main() {
   [[ "$STEP4" -eq 1 ]] && run_step4 || info "STEP4 skipped"
   [[ "$STEP5" -eq 1 ]] && run_step5 || info "STEP5 skipped"
   [[ "$STEP6" -eq 1 ]] && run_step6 || info "STEP6 skipped"
-  [[ "$STEP7" -eq 1 ]] && run_step7 || info "STEP7 skipped"
 
   ok "done"
   info "results: ${OUTPUT_DIR}"
+  info "figures: run notebook/csp_figures.ipynb"
 }
 
 main
