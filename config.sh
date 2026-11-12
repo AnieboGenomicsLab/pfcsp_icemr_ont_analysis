@@ -27,6 +27,7 @@ STEP3="${STEP3:-1}"   # call variants
 STEP4="${STEP4:-1}"   # consensus, haplotypes, MOI
 STEP5="${STEP5:-1}"   # translate, epitopes, 3D7 comparison
 STEP6="${STEP6:-1}"   # phylogeny against MalariaGEN Pf8
+STEP7="${STEP7:-1}"   # plot tables, everything the figures draw
 
 # --- Resources ---
 
@@ -183,7 +184,22 @@ PHYLO_ALRT=1000
 
 PHYLO_THREADS=16
 
-# --- Figures ---
+# --- Plot tables and figures ---
 
-# Figures are not a pipeline step. Run notebook/csp_figures.ipynb once the pipeline has
-# finished. Its first cell holds the paths, the cohort and the printed size.
+# Step 7 writes one table per figure, holding the values and the visual encoding both.
+# The notebook reads only TABLE_DIR_NAME, so a figure is redrawn without the pipeline.
+# Tables meant for a manuscript go in TABLES_DIR_NAME, which the figures never read.
+
+TABLE_DIR_NAME="10_table_for_plot"
+FIGURE_DIR_NAME="11_figures"
+TABLES_DIR_NAME="12_tables"
+
+COUNTRY_A="Nigeria"
+COUNTRY_B="Cameroon"
+
+# Panel A of figure 4 spans the range the substitutions cover, computed by step 7.
+
+# Figure 9, the protein matrix. Samples whose identifier starts with this are left out.
+FIG9_EXCLUDE_PREFIX="CMR"
+FIG9_PAGE_WIDTH=7.5
+FIG9_PAGE_HEIGHT=9.3

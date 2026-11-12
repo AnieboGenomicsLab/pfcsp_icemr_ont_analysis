@@ -204,6 +204,46 @@ run_step6() {
   ok "phylogeny in ${OUTPUT_DIR}/09_phylogeny"
 }
 
+run_step7() {
+  info "STEP7 plot tables"
+  require_file "${OUTPUT_DIR}/08_protein/haplotypes_protein.faa" "protein (run step 5 first)"
+  require_file "$METADATA" "metadata"
+  python3 "${PROC_DIR}/07_plot_tables.py" \
+    --out-dir "$OUTPUT_DIR" \
+    --metadata "$METADATA" \
+    --reference-dir "$REF_DIR" \
+    --codon-map "${REF_DIR}/pfcsp_codon_map.tsv" \
+    --amplicon-start "$AMPLICON_START" \
+    --callable-start "$CALLABLE_START" \
+    --callable-end "$CALLABLE_END" \
+    --th2r "$TH2R_START" "$TH2R_END" \
+    --th3r "$TH3R_START" "$TH3R_END" \
+    --country-a "$COUNTRY_A" \
+    --country-b "$COUNTRY_B" \
+    --tables-dir-name "$TABLE_DIR_NAME"
+
+  # Figure 9 owns the protein matrix, so it writes its own tables and its figure.
+  python3 "${PROC_DIR}/csp_protein_matrix.py" \
+    --out-dir "$OUTPUT_DIR" \
+    --codon-map "${REF_DIR}/pfcsp_codon_map.tsv" \
+    --callable-start "$CALLABLE_START" \
+    --callable-end "$CALLABLE_END" \
+    --th2r "$TH2R_START" "$TH2R_END" \
+    --th3r "$TH3R_START" "$TH3R_END" \
+    --metadata "$METADATA" \
+    --exclude-prefix "$FIG9_EXCLUDE_PREFIX" \
+    --cameroon-prefix "$OUR_CAMEROON_PREFIX" \
+    --country-a "$COUNTRY_A" \
+    --country-b "$COUNTRY_B" \
+    --page-width "$FIG9_PAGE_WIDTH" \
+    --page-height "$FIG9_PAGE_HEIGHT" \
+    --table-dir-name "$TABLE_DIR_NAME" \
+    --figure-dir-name "$FIGURE_DIR_NAME"
+
+  mkdir -p "${OUTPUT_DIR}/${FIGURE_DIR_NAME}" "${OUTPUT_DIR}/${TABLES_DIR_NAME}"
+  ok "plot tables in ${OUTPUT_DIR}/${TABLE_DIR_NAME}"
+}
+
 main() {
   info "config       ${CONFIG}"
   info "input        ${INPUT_DIR}"
@@ -211,6 +251,7 @@ main() {
   info "amplicon     ${AMPLICON_CHROM}:${AMPLICON_START}-${AMPLICON_END}"
   info "callable     ${AMPLICON_CHROM}:${CALLABLE_START}-${CALLABLE_END}"
   info "steps        1:${STEP1} 2:${STEP2} 3:${STEP3} 4:${STEP4} 5:${STEP5} 6:${STEP6}"
+  info "             7:${STEP7}"
 
   if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
     ok "dry run, nothing executed"
@@ -233,10 +274,12 @@ main() {
   [[ "$STEP4" -eq 1 ]] && run_step4 || info "STEP4 skipped"
   [[ "$STEP5" -eq 1 ]] && run_step5 || info "STEP5 skipped"
   [[ "$STEP6" -eq 1 ]] && run_step6 || info "STEP6 skipped"
+  [[ "$STEP7" -eq 1 ]] && run_step7 || info "STEP7 skipped"
 
   ok "done"
   info "results: ${OUTPUT_DIR}"
-  info "figures: run notebook/csp_figures.ipynb"
+  info "tables:  ${OUTPUT_DIR}/${TABLE_DIR_NAME}"
+  info "figures: run notebook/csp_figures.ipynb, it reads only that folder"
 }
 
 main

@@ -93,37 +93,47 @@ STEP1=0 STEP2=0 STEP3=0 STEP4=0 STEP5=0 STEP6=1 bash main.sh
 | 4 | `04_consensus.py` | `06_consensus/`, `07_haplotypes/` consensus, clones, MOI |
 | 5 | `05_translate.py` | `08_protein/` protein, substitutions, epitope status |
 | 6 | `06_phylogeny.py` | `09_phylogeny/` alignments, trees and annotations against Pf8 |
+| 7 | `07_plot_tables.py` | `10_table_for_plot/` one table per figure, plus `11_figures/csp_protein_vs_3d7.pdf` |
 
-Steps 2 to 5 depend on the step before them and step 6 needs step 4. Step 1 only has to
-be rerun when the amplicon coordinates or the epitope boundaries change.
+Steps 2 to 5 depend on the step before them, step 6 needs step 4, and step 7 needs
+steps 4, 5 and 6. Step 1 only has to be rerun when the amplicon coordinates or the
+epitope boundaries change.
 
 ## 6. Draw the figures
 
-Figures are not a pipeline step. Once the pipeline has finished, open the notebook and
-run it top to bottom:
+A figure is never redrawn by rerunning the pipeline. Step 7 writes one table per figure
+into `10_table_for_plot/`, holding the numbers and the visual encoding both, colour,
+size, marker, order and label. The notebook reads only that folder.
 
 ```bash
 conda activate pf_ont_pipeline
 jupyter lab notebook/csp_figures.ipynb
 ```
 
-Its first cell holds the three paths, the cohort and the printed size. Nothing else needs
-editing. Every figure is shown inline and written to `10_figures/`.
+Its first cell holds the two paths. Every figure is shown inline and written to
+`11_figures/`.
 
-| Cell | Figure | Needs |
+| Figure | What it shows | Table it reads |
 |---|---|---|
-| Figure 1 | samples per country | metadata |
-| Figure 2 | MOI per state | step 4 |
-| Figure 3 | nucleotide and haplotype diversity | step 4 |
-| Figure 4 | where the variation sits | steps 3 and 5 |
-| Figure 7 | vaccine match status | step 5 |
-| Figure 8 | FST and PCoA, with 3D7 on the ordination | step 4 |
-| Figure 9 | protein haplotypes against 3D7 | step 5 |
-| Figure 10 | the files to load in iTOL | step 6 |
+| 1 | samples per country | `fig1_sample_counts.tsv` |
+| 2 | MOI per state | `fig2_moi.tsv` |
+| 3 | nucleotide and haplotype diversity | `fig3_diversity.tsv` |
+| 4 | where the variation sits | `fig4_substitutions.tsv` |
+| 7 | vaccine match status | `fig7_vaccine_match.tsv` |
+| 8 | FST and PCoA, with 3D7 on the ordination | `fig8_structure.tsv` |
+| 9 | protein haplotypes against 3D7 | `fig9_protein_*.tsv`, `fig9_meta.tsv` |
+| 10 | the files to load in iTOL | `fig10_tree_annotations.tsv` |
 
-`csp_lib.py` holds the analysis and the plotting, `csp_figure9.py` draws the protein
-matrix. Both sit next to the notebook and are imported by it. The phylogeny itself is
-drawn in iTOL, so the last cell prints the files to load and the order to load them in.
+`index.tsv` lists every table, how many rows it has and which script wrote it. Open it
+first when coming back to this a year later.
+
+To change a colour, edit `plot_style.tsv` and rerun step 7. Nothing in the notebook holds
+a colour, and nothing in the notebook computes a statistic.
+
+`csp_plots.py` draws and reads tables only. `csp_stats.py`, under `process/`, holds the
+population genetics that step 7 runs. `csp_figure9.py` writes the protein matrix tables
+and rebuilds that figure from them with `draw_from_tables`. The phylogeny itself is drawn
+in iTOL, so the last cell prints the files to load and the order to load them in.
 
 ## 7. Output
 
@@ -149,12 +159,20 @@ drawn in iTOL, so the last cell prints the files to load and the order to load t
 │   ├── <dataset>.popart_by_group.nex  network input for PopART
 │   ├── metadata_sequences.tsv         country, region, year, source per sequence
 │   └── itol_*.txt                     annotations to drop on the tree in iTOL
-└── 10_figures/                    written by the notebook, not by main.sh
-    ├── csp_protein_vs_3d7.pdf         the protein figure, vector and raster
-    ├── protein_haplotypes.tsv         every haplotype, its clones, its distance to
-    │                                  3D7 and its Th2R and Th3R status
-    └── protein_variable_positions.tsv per position, the residues seen and their counts
+├── 10_table_for_plot/                 written by step 7, read by the notebook
+│   ├── index.tsv                      every table, its rows and the script that wrote it
+│   ├── plot_style.tsv                 every palette, declared once
+│   ├── fig<N>_*.tsv                   one table per figure, values and encoding
+│   └── clone_distance_to_3d7.tsv      differences from 3D7 per clone
+├── 11_figures/                        written by the notebook and by step 7
+│   ├── fig<N>_*.png                   one file per figure
+│   └── csp_protein_vs_3d7.pdf         the protein figure, vector and raster
+└── 12_tables/                         tables for a manuscript or a report, by hand
 ```
+
+The three folders are deliberately separate. `10_table_for_plot` feeds the figures and
+nothing else. `12_tables` is for the tables a reader sees, which are not the same thing
+and should never be read by a plotting script.
 
 Three files give a first overview: `01_read_qc/mapping_summary.tsv`, then
 `07_haplotypes/moi_per_sample.tsv`, then `08_protein/epitope_status_haplotypes.tsv`.

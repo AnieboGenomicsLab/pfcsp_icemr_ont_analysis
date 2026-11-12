@@ -35,11 +35,18 @@ The layout is placed in inches and the row height adapts to the number of haplot
 all of them can be drawn on one page. Below MIN_ROW_IN the rows stop shrinking and the
 figure grows past the page rather than printing text no one can read.
 
-Outputs under <out_dir>/10_figures:
-  csp_protein_vs_3d7.pdf           vector, for the manuscript
-  csp_protein_vs_3d7.png           raster, for a word processor
-  protein_haplotypes.tsv           the matrix as a table, every haplotype
-  protein_variable_positions.tsv   per position, the residues seen and their counts
+Tables under <out_dir>/10_table_for_plot, everything the figure draws:
+  fig9_protein_haplotypes.tsv   one row per haplotype, the matrix as a table
+  fig9_protein_positions.tsv    per position, the 3D7 residue and the residues seen
+  fig9_protein_states.tsv       one row per haplotype and state, the share drawn
+  fig9_meta.tsv                 totals, page size, title and caption
+
+Figures under <out_dir>/11_figures:
+  csp_protein_vs_3d7.pdf        vector, for the manuscript
+  csp_protein_vs_3d7.png        raster, for a word processor
+
+draw_from_tables() rebuilds the figure from the four tables alone, so the notebook never
+reruns the analysis to redraw it.
 
 Author: Khadim Gueye
 """
@@ -166,6 +173,11 @@ def write_tsv(path, fields, rows):
         fh.write("\t".join(fields) + "\n")
         for r in rows:
             fh.write("\t".join(str(r.get(f, "")) for f in fields) + "\n")
+
+
+def read_tsv(path):
+    with open(path) as fh:
+        return list(csv.DictReader(fh, delimiter="\t"))
 
 
 def collapse_report(nt_fasta, members_by_protein):
@@ -570,6 +582,8 @@ def main(argv=None):
                     help="printed height aimed for; rows stop shrinking at a floor")
     ap.add_argument("--title", default="PfCSP C terminus against 3D7")
     ap.add_argument("--dpi", type=int, default=600)
+    ap.add_argument("--table-dir-name", default="10_table_for_plot")
+    ap.add_argument("--figure-dir-name", default="11_figures")
     args = ap.parse_args(argv)
 
     protein = args.out_dir / "08_protein" / "haplotypes_protein.faa"
@@ -675,8 +689,10 @@ def main(argv=None):
     caption = (f"{total_clones} clones from {n_samples} samples collapse into "
                f"{len(haps)} protein haplotypes, one row each")
 
-    out = args.out_dir / "10_figures"
+    out = args.out_dir / args.table_dir_name
+    fig_out = args.out_dir / args.figure_dir_name
     out.mkdir(parents=True, exist_ok=True)
+    fig_out.mkdir(parents=True, exist_ok=True)
 
     fields = ["haplotype", "n_clones", "pct_clones", "n_samples"]
     if show_country:
@@ -710,8 +726,21 @@ def main(argv=None):
             row[f"n_clones_{args.country_a.lower()}"] = h["n_a"]
             row[f"n_clones_{args.country_b.lower()}"] = h["n_b"]
         rows.append(row)
-    write_tsv(out / "protein_haplotypes.tsv", fields, rows)
-    print(f"[OK] {out / 'protein_haplotypes.tsv'} ({len(rows)} haplotypes)")
+    write_tsv(out / "fig9_protein_haplotypes.tsv", fields, rows)
+    print(f"[OK] {out / 'fig9_protein_haplotypes.tsv'} ({len(rows)} haplotypes)")
+
+    # The state shares as their own rows. Parsing them back out of the states string
+    # would work until the day a state name carries a colon.
+    state_rows = []
+    for h in haps:
+        for name, n in sorted(h["state_counts"].items(), key=lambda kv: (-kv[1], kv[0])):
+            state_rows.append({"haplotype": h["haplotype"], "state": name,
+                               "n_clones": n,
+                               "share_pct": round(h["state_share"].get(name, 0.0), 4),
+                               "order": state_order.index(name)})
+    write_tsv(out / "fig9_protein_states.tsv",
+              ["haplotype", "state", "n_clones", "share_pct", "order"], state_rows)
+    print(f"[OK] {out / 'fig9_protein_states.tsv'} ({len(state_rows)} rows)")
 
     pos_rows = []
     for p, pct in zip(variable, counts):
@@ -728,10 +757,24 @@ def main(argv=None):
             "n_clones_resolved": resolved_at[p],
             "residues": ";".join(f"{a}:{n}" for a, n in seen.most_common()),
         })
-    write_tsv(out / "protein_variable_positions.tsv",
+    write_tsv(out / "fig9_protein_positions.tsv",
               ["aa_position", "aa_3d7", "region", "pct_clones_differing",
                "n_clones_resolved", "residues"], pos_rows)
-    print(f"[OK] {out / 'protein_variable_positions.tsv'} ({len(pos_rows)} positions)")
+    print(f"[OK] {out / 'fig9_protein_positions.tsv'} ({len(pos_rows)} positions)")
+
+    meta_rows = [{"key": k, "value": v} for k, v in (
+        ("total_clones", total_clones), ("n_samples", n_samples),
+        ("n_haplotypes", len(haps)), ("n_drawn", len(shown)),
+        ("show_country", int(show_country)),
+        ("country_a", args.country_a), ("country_b", args.country_b),
+        ("th2r_start", args.th2r[0]), ("th2r_end", args.th2r[1]),
+        ("th3r_start", args.th3r[0]), ("th3r_end", args.th3r[1]),
+        ("page_width", args.page_width), ("page_height", args.page_height),
+        ("dpi", args.dpi), ("title", args.title), ("caption", caption),
+        ("window_start", window[0]), ("window_end", window[-1]),
+        ("state_order", ";".join(state_order)))]
+    write_tsv(out / "fig9_meta.tsv", ["key", "value"], meta_rows)
+    print(f"[OK] {out / 'fig9_meta.tsv'} ({len(meta_rows)} rows)")
 
     n_3d7 = sum(h["n_clones"] for h in haps
                 if h["distance"] == 0 and h["n_unresolved"] == 0)
@@ -741,7 +784,7 @@ def main(argv=None):
           f"over Th2R: {n_th2r}, over Th3R: {n_th3r}")
 
     fig, fw, fh, ch, fs = draw(
-        out / "csp_protein_vs_3d7.pdf", out / "csp_protein_vs_3d7.png",
+        fig_out / "csp_protein_vs_3d7.pdf", fig_out / "csp_protein_vs_3d7.png",
         shown, variable, ref_at, counts, total_clones,
         tuple(args.th2r), tuple(args.th3r), args.title, args.dpi,
         args.page_width, args.page_height,
@@ -751,8 +794,72 @@ def main(argv=None):
     if fh > args.page_height + 0.05:
         print(f"[WARN] taller than the {args.page_height} in page: insert it as a full "
               f"page or supplementary figure, or lower --max-rows")
-    print(f"[OK] {out / 'csp_protein_vs_3d7.pdf'}")
-    print(f"[OK] {out / 'csp_protein_vs_3d7.png'}")
+    print(f"[OK] {fig_out / 'csp_protein_vs_3d7.pdf'}")
+    print(f"[OK] {fig_out / 'csp_protein_vs_3d7.png'}")
+    return fig
+
+
+def draw_from_tables(table_dir, out_pdf=None, out_png=None):
+    """Rebuild the figure from the four tables, with no pipeline output in sight.
+
+    draw() is untouched and still takes the records it has always taken, they are simply
+    read back from the tables instead of recomputed, so the figure is the same one.
+    """
+    d = Path(table_dir)
+    meta = {r["key"]: r["value"] for r in read_tsv(d / "fig9_meta.tsv")}
+    pos = read_tsv(d / "fig9_protein_positions.tsv")
+    haps = read_tsv(d / "fig9_protein_haplotypes.tsv")
+    states = read_tsv(d / "fig9_protein_states.tsv")
+
+    positions = [int(r["aa_position"]) for r in pos]
+    ref_at = {int(r["aa_position"]): r["aa_3d7"] for r in pos}
+    counts = [float(r["pct_clones_differing"]) for r in pos]
+
+    share, counted = {}, {}
+    for r in states:
+        share.setdefault(r["haplotype"], {})[r["state"]] = float(r["share_pct"])
+        counted.setdefault(r["haplotype"], {})[r["state"]] = int(r["n_clones"])
+
+    show_country = meta["show_country"] == "1"
+    a, b = meta["country_a"], meta["country_b"]
+    shown = []
+    for r in haps:
+        if r["drawn"] != "yes":
+            continue
+        name = r["haplotype"]
+        shown.append({
+            "haplotype": name, "sequence": r["sequence"],
+            "n_clones": int(r["n_clones"]), "n_samples": int(r["n_samples"]),
+            "n_sub": int(r["n_substitutions"]),
+            "n_unresolved": int(r["n_unresolved"]),
+            "distance": float(r["distance_to_3d7"]),
+            "th2r": r["th2r_vs_3d7"], "th3r": r["th3r_vs_3d7"],
+            "state_counts": counted.get(name, {}), "state_share": share.get(name, {}),
+            "n_a": int(r.get(f"n_clones_{a.lower()}") or r["n_clones"]),
+            "n_b": int(r.get(f"n_clones_{b.lower()}") or 0),
+        })
+    if not shown:
+        raise RuntimeError(f"no haplotype marked drawn in {d / 'fig9_protein_haplotypes.tsv'}")
+
+    # draw() reads ref_index as a module global, main() normally sets it.
+    global ref_index
+    ws, we = int(meta["window_start"]), int(meta["window_end"])
+    ref_index = {p: i for i, p in enumerate(range(ws, we + 1))}
+    seq_len = len(shown[0]["sequence"])
+    if len(ref_index) != seq_len:
+        raise RuntimeError(f"window {ws} to {we} is {len(ref_index)} residues but the "
+                           f"stored sequence is {seq_len}")
+
+    state_order = [s for s in meta["state_order"].split(";") if s]
+    fig, fw, fh, _, _ = draw(
+        out_pdf, out_png, shown, positions, ref_at, counts,
+        int(meta["total_clones"]),
+        (int(meta["th2r_start"]), int(meta["th2r_end"])),
+        (int(meta["th3r_start"]), int(meta["th3r_end"])),
+        meta["title"], int(meta["dpi"]),
+        float(meta["page_width"]), float(meta["page_height"]),
+        {"a": a, "b": b}, show_country, state_order, meta["caption"])
+    print(f"[INFO] figure {fw:.2f} x {fh:.2f} in, rebuilt from {d}")
     return fig
 
 

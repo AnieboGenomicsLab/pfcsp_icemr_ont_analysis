@@ -20,7 +20,9 @@ __pycache__/
 07_haplotypes/
 08_protein/
 09_phylogeny/
-10_figures/
+10_table_for_plot/
+11_figures/
+12_tables/
 logs/
 
 # Sequencing data and alignments
